@@ -6,6 +6,7 @@ toolchain go1.24.13
 
 require (
 	github.com/ethereum/go-ethereum v1.16.8
+	github.com/holiman/uint256 v1.3.2
 	github.com/joho/godotenv v1.5.1
 )
 
@@ -32,7 +33,6 @@ require (
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/holiman/bloomfilter/v2 v2.0.3 // indirect
-	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/mattn/go-runewidth v0.0.13 // indirect
 	github.com/minio/sha256-simd v1.0.0 // indirect

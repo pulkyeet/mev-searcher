@@ -51,3 +51,7 @@ func (c *Client) StorageAt(ctx context.Context, account common.Address, key comm
 func (c *Client) NonceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (uint64, error) {
     return c.rpc.NonceAt(ctx, account, blockNumber)
 }
+
+func (c *Client) TransactionReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error) {
+	return c.rpc.TransactionReceipt(ctx, txHash)
+}
