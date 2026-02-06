@@ -118,7 +118,7 @@ func main() {
 	}
 
 	fmt.Printf("\n=== Simulation Result ===\n")
-	fmt.Printf("Success: %v\\n", result.Success)
+	fmt.Printf("Success: %v\n", result.Success)
 	fmt.Printf("Gas used: %d\n", result.GasUsed)
 	if receipt!=nil {
 		fmt.Printf("Gas Used (actual): %d\n", receipt.GasUsed)

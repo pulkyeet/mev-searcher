@@ -5,26 +5,33 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/stateless"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/holiman/uint256"
 	"github.com/ethereum/go-ethereum/trie/utils"
-	"github.com/ethereum/go-ethereum/core/stateless"
+	"github.com/holiman/uint256"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 // ForkedStateDB implements vm.StateDB interface for our forked state
 type ForkedStateDB struct {
-	fork    *StateFork
-	logs    []*types.Log
-	refund  uint64
+	fork           *StateFork
+	logs           []*types.Log
+	refund         uint64
+	accessList     map[common.Address]map[common.Hash]bool
+	accessListAddr map[common.Address]bool
+	originalStorage map[common.Address]map[common.Hash]common.Hash
 }
 
 func NewForkedStateDB(fork *StateFork) *ForkedStateDB {
 	return &ForkedStateDB{
-		fork:   fork,
-		logs:   make([]*types.Log, 0),
-		refund: 0,
+		fork:           fork,
+		logs:           make([]*types.Log, 0),
+		refund:         0,
+		accessList:     make(map[common.Address]map[common.Hash]bool),
+		accessListAddr: make(map[common.Address]bool),
+		originalStorage: make(map[common.Address]map[common.Hash]common.Hash),
 	}
 }
 
@@ -56,14 +63,14 @@ func (s *ForkedStateDB) AddBalance(addr common.Address, amount *uint256.Int, rea
 	bal := s.GetBalance(addr)
 	newBal := new(uint256.Int).Add(bal, amount)
 	s.fork.SetBalance(addr, newBal.ToBig())
-	return *bal  // Return value, not pointer
+	return *bal // Return value, not pointer
 }
 
 func (s *ForkedStateDB) SubBalance(addr common.Address, amount *uint256.Int, reason tracing.BalanceChangeReason) uint256.Int {
 	bal := s.GetBalance(addr)
 	newBal := new(uint256.Int).Sub(bal, amount)
 	s.fork.SetBalance(addr, newBal.ToBig())
-	return *bal  // Return value, not pointer
+	return *bal // Return value, not pointer
 }
 
 // Nonce operations
@@ -95,6 +102,9 @@ func (s *ForkedStateDB) GetCodeSize(addr common.Address) int {
 func (s *ForkedStateDB) GetCodeHash(addr common.Address) common.Hash {
 	code := s.GetCode(addr)
 	if len(code) == 0 {
+		if s.Exist(addr) {
+			return  crypto.Keccak256Hash(nil)
+		}
 		return common.Hash{}
 	}
 	return common.BytesToHash(code)
@@ -124,8 +134,20 @@ func (s *ForkedStateDB) SetState(addr common.Address, key, value common.Hash) co
 }
 
 func (s *ForkedStateDB) GetStateAndCommittedState(addr common.Address, hash common.Hash) (common.Hash, common.Hash) {
-	val := s.GetState(addr, hash)
-	return val, val
+    current := s.GetState(addr, hash)
+    
+    // Return cached original, or current is original (first read)
+    if addrMap, ok := s.originalStorage[addr]; ok {
+        if orig, ok := addrMap[hash]; ok {
+            return current, orig
+        }
+    }
+    // First time seeing this slot in this tx — current IS the original
+    if s.originalStorage[addr] == nil {
+        s.originalStorage[addr] = make(map[common.Hash]common.Hash)
+    }
+    s.originalStorage[addr][hash] = current
+    return current, current
 }
 
 func (s *ForkedStateDB) GetStorageRoot(addr common.Address) common.Hash {
@@ -198,7 +220,7 @@ func (s *ForkedStateDB) AddPreimage(hash common.Hash, preimage []byte) {}
 func (s *ForkedStateDB) SelfDestruct(addr common.Address) uint256.Int {
 	bal := s.GetBalance(addr)
 	s.fork.SetBalance(addr, big.NewInt(0))
-	return *bal  
+	return *bal
 }
 
 func (s *ForkedStateDB) HasSelfDestructed(addr common.Address) bool {
@@ -210,16 +232,29 @@ func (s *ForkedStateDB) SelfDestruct6780(addr common.Address) (uint256.Int, bool
 }
 
 // Access list (EIP-2929)
-func (s *ForkedStateDB) AddAddressToAccessList(addr common.Address) {}
+func (s *ForkedStateDB) AddAddressToAccessList(addr common.Address) {s.accessListAddr[addr] = true}
 
-func (s *ForkedStateDB) AddSlotToAccessList(addr common.Address, slot common.Hash) {}
+func (s *ForkedStateDB) AddSlotToAccessList(addr common.Address, slot common.Hash) {
+	s.accessListAddr[addr] = true
+    if s.accessList[addr] == nil {
+        s.accessList[addr] = make(map[common.Hash]bool)
+    }
+    s.accessList[addr][slot] = true
+}
 
 func (s *ForkedStateDB) AddressInAccessList(addr common.Address) bool {
-	return true
+	return s.accessListAddr[addr]
 }
 
 func (s *ForkedStateDB) SlotInAccessList(addr common.Address, slot common.Hash) (bool, bool) {
-	return true, true
+	addrOk := s.accessListAddr[addr]
+    if !addrOk {
+        return false, false
+    }
+    if s.accessList[addr] == nil {
+        return true, false
+    }
+    return true, s.accessList[addr][slot]
 }
 
 // Prepare for transaction execution
