@@ -1,0 +1,93 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"log"
+	"math/big"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/pulkyeet/mev-searcher/internal/eth"
+	"github.com/pulkyeet/mev-searcher/internal/simulator"
+)
+
+func main() {
+	blockNum := flag.Int64("block", 0, "Block number to fork from")
+	txHash := flag.String("tx", "", "Transaction hash to simulate")
+	flag.Parse()
+
+	if *blockNum == 0 {
+		log.Fatal("Usage: simulate --block <number> --tx <hash>")
+	}
+
+	client, err := eth.NewClient()
+	if err!=nil {
+		log.Fatal(err)
+	}
+
+	ctx := context.Background()
+
+	// forking at block n-1
+	fmt.Printf("Forking state at block %d...\n", *blockNum-1)
+	fork, err := simulator.NewStateFork(client, big.NewInt(*blockNum-1))
+	if err!=nil {
+		log.Fatal(err)
+	}
+
+	// if no tx hash
+	if *txHash=="" {
+		fmt.Printf("no tx specified, testing balance fetch only")
+		vitalik := common.HexToAddress("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045")
+		bal, _ := fork.GetBalance(vitalik)
+		fmt.Printf("Vitalik balance: %s wei\n", bal.String())
+		return
+	}
+
+	// fetching tx from block N
+	fmt.Printf("fetching transaction %s...\n", *txHash)
+	block ,err := client.BlockByNumber(ctx, big.NewInt(*blockNum))
+	if err!=nil {
+		log.Fatal(err)
+	}
+
+	hash := common.HexToHash(*txHash)
+	var targetTx *types.Transaction
+	for _, tx := range block.Transactions() {
+		if tx.Hash() == hash {
+			targetTx = tx
+			break
+		}
+	}
+
+	if targetTx == nil {
+		fmt.Printf("Transaction %s not found in block %d\n", *txHash, *blockNum)
+		fmt.Println("\nAvailable transactions in this block (first 3):")
+		for i, tx := range block.Transactions() {
+			if i >= 3 {
+				break
+			}
+			fmt.Printf("  %s\n", tx.Hash().Hex())
+		}
+		return
+	}
+
+	fmt.Printf("found tx from %s\n", targetTx.To().Hex())
+
+	// exec tx
+	executor := simulator.NewExecutor(fork)
+	result, err := executor.ExecuteTransaction(targetTx)
+	if err!=nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("\n=== Simulation Result ===\n")
+	fmt.Printf("Success: %v\\n", result.Success)
+	fmt.Printf("Gas used: %d\n", result.GasUsed)
+	fmt.Printf("Logs: %d events emitted\n", len(result.Logs))
+	if !result.Success {
+		fmt.Printf("Revert Reason: %s\n", result.RevertReason)
+	}
+
+}
