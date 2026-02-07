@@ -41,6 +41,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer fork.Close() // ADD THIS LINE
+
+	// Prewarm cache using debug_trace (if available)
+	if *txHash != "" {
+		txHash := common.HexToHash(*txHash)
+		if err := fork.PrewarmFromTrace(txHash); err != nil {
+			// Silently continue - debug_trace might not be available
+		}
+	}
 
 	// Fetch block
 	if *verbose {
@@ -65,8 +74,8 @@ func main() {
 
 	// No tx specified - show available txs
 	fmt.Printf("Block %d has %d transactions\n", *blockNum, len(block.Transactions()))
-	fmt.Println("\nFirst 5 transactions:")
-	for i := 0; i < 5 && i < len(block.Transactions()); i++ {
+	fmt.Println("\nFirst 50 transactions:")
+	for i := 0; i < 50 && i < len(block.Transactions()); i++ {
 		fmt.Printf("  [%d] %s\n", i, block.Transactions()[i].Hash().Hex())
 	}
 }
@@ -110,7 +119,7 @@ func executeBundleMode(ctx context.Context, client *eth.Client, fork *simulator.
 	fmt.Printf("Transactions: %d\n", len(bundleTxs))
 	fmt.Printf("Success:     %v\n", result.Success)
 	fmt.Printf("Total Gas:   %d\n", result.TotalGasUsed)
-	
+
 	if !result.Success {
 		fmt.Printf("Failed at:   tx %d\n", result.RevertedAt)
 	}
@@ -121,17 +130,19 @@ func executeBundleMode(ctx context.Context, client *eth.Client, fork *simulator.
 		if !txResult.Success {
 			status = "✗"
 		}
-		fmt.Printf("  [%d] %s %s (gas: %d, logs: %d)\n", 
+		fmt.Printf("  [%d] %s %s (gas: %d, logs: %d)\n",
 			i, status, txResult.TxHash.Hex()[:10]+"...", txResult.GasUsed, len(txResult.Logs))
 		if !txResult.Success && verbose {
 			fmt.Printf("      Revert: %s\n", txResult.RevertReason)
 		}
 	}
+	fmt.Println()
+    fork.PrintStats()
 }
 
 func executeSingleTxMode(ctx context.Context, client *eth.Client, fork *simulator.StateFork, block *types.Block, txHashStr string, verbose bool) {
 	hash := common.HexToHash(txHashStr)
-	
+
 	// Find tx in block
 	var targetTx *types.Transaction
 	var txIndex int
@@ -191,12 +202,12 @@ func executeSingleTxMode(ctx context.Context, client *eth.Client, fork *simulato
 	} else {
 		fmt.Printf("To:       CONTRACT_CREATION\n")
 	}
-	
+
 	fmt.Printf("\n--- Simulation ---\n")
 	fmt.Printf("Success:  %v\n", result.Success)
 	fmt.Printf("Gas Used: %d\n", result.GasUsed)
 	fmt.Printf("Logs:     %d events\n", len(result.Logs))
-	
+
 	if !result.Success {
 		fmt.Printf("Revert:   %s\n", result.RevertReason)
 	}
@@ -206,7 +217,7 @@ func executeSingleTxMode(ctx context.Context, client *eth.Client, fork *simulato
 		fmt.Printf("Status:   %d (1=success, 0=failed)\n", receipt.Status)
 		fmt.Printf("Gas Used: %d\n", receipt.GasUsed)
 		fmt.Printf("Logs:     %d events\n", len(receipt.Logs))
-		
+
 		diff := int64(result.GasUsed) - int64(receipt.GasUsed)
 		if diff == 0 {
 			fmt.Printf("\n✓ PERFECT MATCH\n")
@@ -214,6 +225,8 @@ func executeSingleTxMode(ctx context.Context, client *eth.Client, fork *simulato
 			fmt.Printf("\n⚠ Gas mismatch: %+d (%.2f%%)\n", diff, float64(diff)/float64(receipt.GasUsed)*100)
 		}
 	}
+	fmt.Println()
+    fork.PrintStats()
 }
 
 func getFrom(tx *types.Transaction) string {

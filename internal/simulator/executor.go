@@ -23,10 +23,10 @@ func NewExecutor(fork *StateFork) *Executor {
 }
 
 func (e *Executor) ExecuteTransaction(tx *types.Transaction, targetBlock *types.Block) (*SimulationResult, error) {
-	// create state db
+	// Create state database wrapper
 	stateDB := NewForkedStateDB(e.fork)
 
-	// get context (block)
+	// Build block context from target block
 	block := e.fork.BlockContext()
 	blockContext := vm.BlockContext{
 		CanTransfer: core.CanTransfer,
@@ -40,25 +40,24 @@ func (e *Executor) ExecuteTransaction(tx *types.Transaction, targetBlock *types.
 		BaseFee:     targetBlock.BaseFee(),
 	}
 
-	// get sender
+	// Extract sender from transaction
 	signer := types.LatestSignerForChainID(tx.ChainId())
 	sender, err := types.Sender(signer, tx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sender: %w", err)
 	}
 
+	// Initialize EVM
 	evm := vm.NewEVM(blockContext, stateDB, e.config, vm.Config{})
-
-	// Set transaction context
 	evm.SetTxContext(vm.TxContext{
 		Origin:   sender,
 		GasPrice: tx.GasPrice(),
 	})
 
-	// taking snapshot for revert
+	// Take snapshot for potential revert
 	snap := stateDB.Snapshot()
 
-	// exec tx
+	// Build message from transaction
 	msg := &core.Message{
 		To:         tx.To(),
 		From:       sender,
@@ -72,15 +71,13 @@ func (e *Executor) ExecuteTransaction(tx *types.Transaction, targetBlock *types.
 		AccessList: tx.AccessList(),
 	}
 
-	// calculate intrinsic gas
-	intrinsicGas, err := core.IntrinsicGas(msg.Data, msg.AccessList, nil, msg.To == nil, true, true, true)
+	// Validate intrinsic gas
+	_, err = core.IntrinsicGas(msg.Data, msg.AccessList, nil, msg.To == nil, true, true, true)
 	if err != nil {
-		return nil, fmt.Errorf("intrinsic gas calculation failed: %w", err)
+		return nil, fmt.Errorf("intrinsic gas validation failed: %w", err)
 	}
-	fmt.Printf("DEBUG: Intrinsic gas: %d\n", intrinsicGas)
-	fmt.Printf("DEBUG: tx gas limit: %d\n", msg.GasLimit)
 
-	// apply message
+	// Execute transaction
 	gp := new(core.GasPool).AddGas(block.GasLimit())
 	result, err := core.ApplyMessage(evm, msg, gp)
 	if err != nil {
@@ -91,10 +88,7 @@ func (e *Executor) ExecuteTransaction(tx *types.Transaction, targetBlock *types.
 		}, nil
 	}
 
-	fmt.Printf("DEBUG: Result.UsedGas: %d\n", result.UsedGas)
-	fmt.Printf("DEBUG: Result.Failed: %v\n", result.Failed())
-
-	// build result
+	// Build simulation result
 	simResult := &SimulationResult{
 		Success:    !result.Failed(),
 		GasUsed:    result.UsedGas,
