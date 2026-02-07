@@ -16,6 +16,22 @@ type SimulationResult struct {
 	StateChanges *StateChanges
 }
 
+type BundleResult struct {
+	Success bool
+	Transactions []*TxResult
+	TotalGasUsed uint64
+	RevertedAt int // -1 if all tx succeed; txIndex if a tx fails
+}
+
+type TxResult struct {
+	TxHash common.Hash
+	Success bool
+	GasUsed uint64
+	Logs []*types.Log
+	ReturnData []byte
+	RevertReason string
+}
+
 type StateChanges struct {
 	BalanceChanges map[common.Address]*big.Int
 	NonceChanges map[common.Address]uint64
