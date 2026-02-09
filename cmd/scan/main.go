@@ -6,31 +6,25 @@ import (
 	"fmt"
 	"log"
 	"math/big"
-	"os"
 
 	"github.com/joho/godotenv"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/pulkyeet/mev-searcher/internal/arbitrage"
+	"github.com/pulkyeet/mev-searcher/internal/eth"
+	"github.com/pulkyeet/mev-searcher/internal/simulator"
 )
 
 func main() {
 	_ = godotenv.Load("../../.env")
 	// flags
 	blockNum := flag.Uint64("block", 18000000, "block number to scan")
+	simulateFlag := flag.Bool("simulate", false, "Simulate the arbitrage bundle")
 	pair := flag.String("pair", "WETH/USDC", "Trading pair (WETH/USDC or WETH/USDT)")
 	flag.Parse()
 
-	// get rpc url from env
-	rpcURL := os.Getenv("ALCHEMY_URL")
-	if rpcURL=="" {
-		log.Fatal("ALCHEMY_URL environment variable not set")
-	}
-
-	client, err := ethclient.Dial(rpcURL)
-	if err!=nil {
+	client, err := eth.NewClient()
+	if err != nil {
 		log.Fatalf("failed to connect to Ethereum: %v", err)
 	}
-	defer client.Close()
 
 	ctx := context.Background()
 	blockBigInt := new(big.Int).SetUint64(*blockNum)
@@ -48,7 +42,7 @@ func main() {
 		log.Fatalf("unsupported pair: %s (use WETH/USDC or WETH/USDT)", *pair)
 	}
 
-	if err!=nil {
+	if err != nil {
 		log.Fatalf("failed to load pools: %v", err)
 	}
 
@@ -76,15 +70,15 @@ func main() {
 	if len(prices) >= 2 {
 		fmt.Println("\n\nPrice Comparison:")
 		fmt.Println("=================")
-		
+
 		// Compare using Token1PerToken0 (e.g., WETH price in USDC)
 		diff := arbitrage.ComparePrices(
 			prices[0].Token1PerToken0,
 			prices[1].Token1PerToken0,
 		)
-		
+
 		fmt.Printf("Price difference: %.4f%%\n", diff)
-		
+
 		if diff > 0.1 {
 			fmt.Printf("\n🚨 ARBITRAGE OPPORTUNITY DETECTED! 🚨\n")
 			fmt.Printf("Price spread: %.4f%%\n", diff)
@@ -93,9 +87,9 @@ func main() {
 		}
 	}
 
-	gasPrice := big.NewInt(30e9)    // 30 gwei
-	gasLimit := big.NewInt(300000)   // ~300k gas for 2 swaps
-	
+	gasPrice := big.NewInt(30e9)   // 30 gwei
+	gasLimit := big.NewInt(300000) // ~300k gas for 2 swaps
+
 	opp, err := arbitrage.DetectOpportunity(pools, gasPrice, gasLimit)
 	if err != nil {
 		log.Fatalf("Failed to detect opportunity: %v", err)
@@ -114,9 +108,35 @@ func main() {
 		fmt.Printf("  Input:  %s USDC ($%s)\n", 
 			opp.OptimalIn.String(),
 			new(big.Float).Quo(new(big.Float).SetInt(opp.OptimalIn), big.NewFloat(1e6)).Text('f', 2))
-		fmt.Printf("  Profit: %s USDC ($%s)\n",
+		fmt.Printf("  Est Profit: %s USDC ($%s)\n",
 			opp.EstProfit.String(),
 			new(big.Float).Quo(new(big.Float).SetInt(opp.EstProfit), big.NewFloat(1e6)).Text('f', 2))
+
+		// Simulate if flag is set
+		if *simulateFlag {
+			fmt.Println("\n🔧 Simulating arbitrage bundle...")
+			
+			fork, err := simulator.NewStateFork(client, blockBigInt)
+			if err != nil {
+				log.Fatalf("Failed to fork: %v", err)
+			}
+			defer fork.Close()
+
+			arbExec := arbitrage.NewArbExecutor(fork)
+			simResult, err := arbExec.SimulateArbitrage(opp)
+			if err != nil {
+				log.Fatalf("Simulation error: %v", err)
+			}
+
+			fmt.Println("\n📊 Simulation Results:")
+			fmt.Println("======================")
+			fmt.Println(simResult.CompareResults())
+			fmt.Printf("Gas Used: %d\n", simResult.GasUsed)
+			
+			fork.PrintStats()
+		} else {
+			fmt.Println("\n💡 Add --simulate flag to test this opportunity")
+		}
 	}
 
 	fmt.Println("\n✅ Scan complete")

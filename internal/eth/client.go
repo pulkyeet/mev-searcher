@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/ethereum/go-ethereum"  
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -64,6 +65,10 @@ func (c *Client) NonceAt(ctx context.Context, account common.Address, blockNumbe
 
 func (c *Client) TransactionReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error) {
 	return c.rpc.TransactionReceipt(ctx, txHash)
+}
+
+func (c *Client) CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
+	return c.rpc.CallContract(ctx, msg, blockNumber)
 }
 
 // batch RPC call structures

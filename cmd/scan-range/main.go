@@ -6,12 +6,10 @@ import (
 	"fmt"
 	"log"
 	"math/big"
-	"os"
 
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/joho/godotenv"
-
 	"github.com/pulkyeet/mev-searcher/internal/arbitrage"
+	"github.com/pulkyeet/mev-searcher/internal/eth"
 )
 
 func main() {
@@ -23,16 +21,10 @@ func main() {
 	step := flag.Uint64("step", 100, "Block step size")
 	flag.Parse()
 
-	rpcURL := os.Getenv("ALCHEMY_URL")
-	if rpcURL == "" {
-		log.Fatal("ALCHEMY_URL not set")
-	}
-
-	client, err := ethclient.Dial(rpcURL)
+	client, err := eth.NewClient()
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
 	}
-	defer client.Close()
 
 	ctx := context.Background()
 	gasPrice := big.NewInt(5e9)

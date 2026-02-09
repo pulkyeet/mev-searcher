@@ -9,7 +9,6 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/pulkyeet/mev-searcher/internal/eth"
 
 )
@@ -17,7 +16,7 @@ import (
 // fetchreserves gets reserves for a pool at a specific block
 func FetchReserves(
 	ctx context.Context,
-	client *ethclient.Client,
+	client *eth.Client,
 	poolAddress common.Address,
 	blockNum *big.Int,
 ) (reserve0, reserve1 *big.Int, err error) {
@@ -69,7 +68,7 @@ func FetchReserves(
 }
 
 // fetchTokens gets token0 and token1 addresses for a pool
-func FetchTokens(ctx context.Context, client *ethclient.Client, poolAddress common.Address, blockNum *big.Int) (token0, token1 common.Address, err error) {
+func FetchTokens(ctx context.Context, client *eth.Client, poolAddress common.Address, blockNum *big.Int) (token0, token1 common.Address, err error) {
 	contractABI, err := abi.JSON(strings.NewReader(eth.UniswapV2PairABI))
 	if err!=nil {
 		return common.Address{}, common.Address{}, fmt.Errorf("parse abi: %w", err)
@@ -105,7 +104,7 @@ func FetchTokens(ctx context.Context, client *ethclient.Client, poolAddress comm
 
 // loadpool fetches complete pool state at a block
 
-func LoadPool(ctx context.Context, client *ethclient.Client, poolAddress common.Address, dex string, blockNum *big.Int) (*Pool, error) {
+func LoadPool(ctx context.Context, client *eth.Client, poolAddress common.Address, dex string, blockNum *big.Int) (*Pool, error) {
 	token0, token1, err := FetchTokens(ctx, client, poolAddress, blockNum)
 	if err!=nil {
 		return nil, fmt.Errorf("fetch tokens: %w", err)
@@ -127,7 +126,7 @@ func LoadPool(ctx context.Context, client *ethclient.Client, poolAddress common.
 }
 
 // returns all tracked WETH/USDC pools
-func GetWETHUSDCPools(ctx context.Context, client *ethclient.Client, blockNum *big.Int) (*PairPools, error) {
+func GetWETHUSDCPools(ctx context.Context, client *eth.Client, blockNum *big.Int) (*PairPools, error) {
 	pools := make([]*Pool,0,2)
 
 	uniPool, err := LoadPool(ctx, client, eth.UniV2_WETH_USDC, "uniswap", blockNum)
@@ -154,7 +153,7 @@ func GetWETHUSDCPools(ctx context.Context, client *ethclient.Client, blockNum *b
 // GetWETHUSDTPools returns all tracked WETH/USDT pools
 func GetWETHUSDTPools(
 	ctx context.Context,
-	client *ethclient.Client,
+	client *eth.Client,
 	blockNum *big.Int,
 ) (*PairPools, error) {
 	pools := make([]*Pool, 0, 2)
