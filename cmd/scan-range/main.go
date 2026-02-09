@@ -30,8 +30,9 @@ func main() {
 	gasPrice := big.NewInt(5e9)
 	gasLimit := big.NewInt(300000)
 
-	fmt.Printf("Scanning blocks %d to %d (step: %d) for %s opportunities...\n\n",
+	fmt.Printf("Scanning blocks %d to %d (step: %d) for %s opportunities...\n",
 		*startBlock, *endBlock, *step, *pair)
+	fmt.Printf("(Checking pre-MEV state at block N-1)\n\n")
 
 	foundCount := 0
 	checkedCount := 0
@@ -39,30 +40,29 @@ func main() {
 	for block := *startBlock; block <= *endBlock; block += *step {
 		checkedCount++
 
-		// Progress indicator
 		if checkedCount%10 == 0 {
 			fmt.Printf("Checked %d blocks, found %d opportunities...\n", checkedCount, foundCount)
 		}
 
 		blockBigInt := new(big.Int).SetUint64(block)
+		preMEVBlock := new(big.Int).Sub(blockBigInt, big.NewInt(1))
 
-		// Load pools
+		// Load pools at block N-1
 		var pools *arbitrage.PairPools
 		switch *pair {
 		case "WETH/USDC":
-			pools, err = arbitrage.GetWETHUSDCPools(ctx, client, blockBigInt)
+			pools, err = arbitrage.GetWETHUSDCPools(ctx, client, preMEVBlock)
 		case "WETH/USDT":
-			pools, err = arbitrage.GetWETHUSDTPools(ctx, client, blockBigInt)
+			pools, err = arbitrage.GetWETHUSDTPools(ctx, client, preMEVBlock)
 		default:
 			log.Fatalf("Unsupported pair: %s", *pair)
 		}
 
 		if err != nil {
-			fmt.Printf("Block %d: Error loading pools: %v\n", block, err)
 			continue
 		}
 
-		// Always print spread, even if not profitable
+		// Check spread
 		prices := arbitrage.GetPoolPrices(pools)
 		if len(prices) >= 2 {
 			diff := arbitrage.ComparePrices(prices[0].Token1PerToken0, prices[1].Token1PerToken0)
@@ -74,13 +74,11 @@ func main() {
 		// Detect opportunity
 		opp, err := arbitrage.DetectOpportunity(pools, gasPrice, gasLimit)
 		if err != nil {
-			fmt.Printf("Block %d: Error detecting: %v\n", block, err)
 			continue
 		}
 
 		if opp != nil {
 			foundCount++
-			opp.BlockNumber = block
 
 			fmt.Printf("\n🎯 BLOCK %d - PROFITABLE ARB FOUND!\n", block)
 			fmt.Printf("   Buy:  %s\n", opp.BuyPool.DEX)

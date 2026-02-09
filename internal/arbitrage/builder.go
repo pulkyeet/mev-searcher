@@ -90,7 +90,7 @@ func BuildArbTransactions(
 		To:       &buyRouter,
 		Value:    big.NewInt(0),
 		Gas:      150000,  // Estimated gas for single swap
-		GasPrice: big.NewInt(30e9), // 30 gwei
+		GasPrice: big.NewInt(5e9), // 30 gwei
 		Data:     buyCalldata,
 	}
 
@@ -124,7 +124,7 @@ func BuildArbTransactions(
 		To:       &sellRouter,
 		Value:    big.NewInt(0),
 		Gas:      150000,
-		GasPrice: big.NewInt(30e9),
+		GasPrice: big.NewInt(5e9),
 		Data:     sellCalldata,
 	}
 
