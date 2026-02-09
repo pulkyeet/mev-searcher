@@ -10,13 +10,13 @@ import (
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/joho/godotenv"
-	
+
 	"github.com/pulkyeet/mev-searcher/internal/arbitrage"
 )
 
 func main() {
 	_ = godotenv.Load("../../.env")
-	
+
 	startBlock := flag.Uint64("start", 17000000, "Start block")
 	endBlock := flag.Uint64("end", 17001000, "End block")
 	pair := flag.String("pair", "WETH/USDC", "Trading pair")
@@ -35,10 +35,10 @@ func main() {
 	defer client.Close()
 
 	ctx := context.Background()
-	gasPrice := big.NewInt(10e9)
+	gasPrice := big.NewInt(5e9)
 	gasLimit := big.NewInt(300000)
 
-	fmt.Printf("Scanning blocks %d to %d (step: %d) for %s opportunities...\n\n", 
+	fmt.Printf("Scanning blocks %d to %d (step: %d) for %s opportunities...\n\n",
 		*startBlock, *endBlock, *step, *pair)
 
 	foundCount := 0
@@ -46,9 +46,9 @@ func main() {
 
 	for block := *startBlock; block <= *endBlock; block += *step {
 		checkedCount++
-		
+
 		// Progress indicator
-		if checkedCount % 10 == 0 {
+		if checkedCount%10 == 0 {
 			fmt.Printf("Checked %d blocks, found %d opportunities...\n", checkedCount, foundCount)
 		}
 
@@ -70,6 +70,15 @@ func main() {
 			continue
 		}
 
+		// Always print spread, even if not profitable
+		prices := arbitrage.GetPoolPrices(pools)
+		if len(prices) >= 2 {
+			diff := arbitrage.ComparePrices(prices[0].Token1PerToken0, prices[1].Token1PerToken0)
+			if diff > 0.05 {
+				fmt.Printf("Block %d: Spread %.4f%% (checking profitability...)\n", block, diff)
+			}
+		}
+
 		// Detect opportunity
 		opp, err := arbitrage.DetectOpportunity(pools, gasPrice, gasLimit)
 		if err != nil {
@@ -80,21 +89,21 @@ func main() {
 		if opp != nil {
 			foundCount++
 			opp.BlockNumber = block
-			
+
 			fmt.Printf("\n🎯 BLOCK %d - PROFITABLE ARB FOUND!\n", block)
 			fmt.Printf("   Buy:  %s\n", opp.BuyPool.DEX)
 			fmt.Printf("   Sell: %s\n", opp.SellPool.DEX)
 			fmt.Printf("   Spread: %.4f%%\n", opp.PriceDiff)
-			
+
 			profitUSDC := new(big.Float).Quo(
-				new(big.Float).SetInt(opp.EstProfit), 
+				new(big.Float).SetInt(opp.EstProfit),
 				big.NewFloat(1e6),
 			)
 			inputUSDC := new(big.Float).Quo(
 				new(big.Float).SetInt(opp.OptimalIn),
 				big.NewFloat(1e6),
 			)
-			
+
 			fmt.Printf("   Input:  $%s USDC\n", inputUSDC.Text('f', 2))
 			fmt.Printf("   Profit: $%s USDC\n\n", profitUSDC.Text('f', 2))
 		}
@@ -104,7 +113,7 @@ func main() {
 	fmt.Printf("Scan complete!\n")
 	fmt.Printf("Blocks checked: %d\n", checkedCount)
 	fmt.Printf("Opportunities found: %d\n", foundCount)
-	
+
 	if foundCount > 0 {
 		fmt.Printf("\n✅ Found %d profitable arbitrage opportunities!\n", foundCount)
 	} else {
