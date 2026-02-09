@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	_ "embed" // Add this
 	"fmt"
 	"math/big"
 	"os"
@@ -11,33 +12,31 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+//go:embed schema.sql
+var schemaSQL string // Compiler embeds schema.sql at compile time
+
 type CacheDB struct {
 	db *sql.DB
 }
 
 func NewCacheDB(dbPath string) (*CacheDB, error) {
 	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0755); err!=nil {
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create cache dir: %w", err)
 	}
 
 	db, err := sql.Open("sqlite3", dbPath)
-	if err!=nil {
+	if err != nil {
 		return nil, fmt.Errorf("failed to open cache db: %w", err)
 	}
 
 	// Enable WAL mode for better concurrency
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err!=nil {
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		return nil, fmt.Errorf("failed to enable WAL: %w", err)
 	}
 
-	// load schenma
-	schema, err := os.ReadFile("internal/storage/schema.sql")
-	if err!=nil {
-		return nil, fmt.Errorf("failed to read schema: %w", err)
-	}
-
-	if _, err := db.Exec(string(schema)); err!=nil {
+	// Use embedded schema
+	if _, err := db.Exec(schemaSQL); err != nil {
 		return nil, fmt.Errorf("failed to initialise schema: %w", err)
 	}
 
@@ -56,15 +55,15 @@ func (c *CacheDB) GetBalance(blockNumber uint64, addr common.Address) (*big.Int,
 		blockNumber, addr.Hex(),
 	).Scan(&balanceStr)
 
-	if err==sql.ErrNoRows {
+	if err == sql.ErrNoRows {
 		return nil, false
 	}
-	if err!=nil {
+	if err != nil {
 		return nil, false
 	}
 
 	balance := new(big.Int)
-	balance.SetString(balanceStr,10)
+	balance.SetString(balanceStr, 10)
 	return balance, true
 }
 
@@ -83,10 +82,10 @@ func (c *CacheDB) GetNonce(blockNumber uint64, addr common.Address) (uint64, boo
 		blockNumber, addr.Hex(),
 	).Scan(&nonce)
 
-	if err==sql.ErrNoRows {
+	if err == sql.ErrNoRows {
 		return 0, false
 	}
-	if err!=nil {
+	if err != nil {
 		return 0, false
 	}
 
@@ -124,7 +123,7 @@ func (c *CacheDB) SetCode(blockNumber uint64, addr common.Address, code []byte) 
 		blockNumber, addr.Hex(), code,
 	)
 	return err
-} 
+}
 
 // Storage operations
 func (c *CacheDB) GetStorage(blockNumber uint64, addr common.Address, slot common.Hash) (common.Hash, bool) {
@@ -157,13 +156,13 @@ func (c *CacheDB) SetStorage(blockNumber uint64, addr common.Address, slot, valu
 type AccountData struct {
 	Address common.Address
 	Balance *big.Int
-	Nonce uint64
-	Code []byte
+	Nonce   uint64
+	Code    []byte
 }
 
 func (c *CacheDB) BatchSetAccounts(blockNumber uint64, accounts []AccountData) error {
 	tx, err := c.db.Begin()
-	if err!=nil {
+	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
@@ -171,7 +170,7 @@ func (c *CacheDB) BatchSetAccounts(blockNumber uint64, accounts []AccountData) e
 	stmt, err := tx.Prepare(
 		"INSERT OR REPLACE INTO account_state (block_number, address, balance, nonce, code) VALUES (?,?,?,?,?)",
 	)
-	if err!=nil {
+	if err != nil {
 		return err
 	}
 	defer stmt.Close()
@@ -184,7 +183,7 @@ func (c *CacheDB) BatchSetAccounts(blockNumber uint64, accounts []AccountData) e
 			acc.Nonce,
 			acc.Code,
 		)
-		if err!=nil {
+		if err != nil {
 			return nil
 		}
 	}
@@ -193,8 +192,8 @@ func (c *CacheDB) BatchSetAccounts(blockNumber uint64, accounts []AccountData) e
 
 type StorageData struct {
 	Address common.Address
-	Slot common.Hash
-	Value common.Hash
+	Slot    common.Hash
+	Value   common.Hash
 }
 
 func (c *CacheDB) BatchSetStorage(blockNumber uint64, storage []StorageData) error {
@@ -233,7 +232,7 @@ func (c *CacheDB) GetStats() (map[string]int64, error) {
 	stats := make(map[string]int64)
 
 	var count int64
-	if err := c.db.QueryRow("SELECT COUNT(*) FROM account_state").Scan(&count); err!=nil {
+	if err := c.db.QueryRow("SELECT COUNT(*) FROM account_state").Scan(&count); err != nil {
 		return nil, err
 	}
 	stats["account_entries"] = count

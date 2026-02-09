@@ -61,9 +61,12 @@ func BuildArbTransactions(
 	opp *Opportunity,
 	executor common.Address,
 	blockTimestamp uint64,
+	baseFee *big.Int,
 ) ([]*types.LegacyTx, error) {
 	// deadline = blocktimestamp + 2 minutes
 	deadline := new(big.Int).Add(big.NewInt(int64(blockTimestamp)), big.NewInt(120))
+
+	gasPrice := new(big.Int).Add(baseFee, big.NewInt(2e9)) // baseFee + 2 gwei tip
 
 	txs := make([]*types.LegacyTx, 2)
 
@@ -87,10 +90,11 @@ func BuildArbTransactions(
 		return nil, fmt.Errorf("failed to build buy calldata: %w", err)
 	}
 	txs[0] = &types.LegacyTx{
+		Nonce: 0,
 		To:       &buyRouter,
 		Value:    big.NewInt(0),
 		Gas:      150000,  // Estimated gas for single swap
-		GasPrice: big.NewInt(5e9), // 30 gwei
+		GasPrice: gasPrice, // 30 gwei
 		Data:     buyCalldata,
 	}
 
@@ -121,10 +125,11 @@ func BuildArbTransactions(
 	}
 
 	txs[1] = &types.LegacyTx{
+		Nonce: 1,
 		To:       &sellRouter,
 		Value:    big.NewInt(0),
 		Gas:      150000,
-		GasPrice: big.NewInt(5e9),
+		GasPrice: gasPrice,
 		Data:     sellCalldata,
 	}
 
