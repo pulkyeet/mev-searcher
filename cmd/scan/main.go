@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"github.com/pulkyeet/mev-searcher/internal/arbitrage"
@@ -15,7 +16,7 @@ import (
 
 func main() {
 	_ = godotenv.Load("../../.env")
-	
+
 	blockNum := flag.Uint64("block", 18000000, "block number to scan")
 	simulateFlag := flag.Bool("simulate", false, "Simulate the arbitrage bundle")
 	pair := flag.String("pair", "WETH/USDC", "Trading pair (WETH/USDC or WETH/USDT)")
@@ -28,27 +29,41 @@ func main() {
 
 	ctx := context.Background()
 	blockBigInt := new(big.Int).SetUint64(*blockNum)
-	
+
 	// Fork to block N-1 to see pre-MEV state
 	preMEVBlock := new(big.Int).Sub(blockBigInt, big.NewInt(1))
 
-	fmt.Printf("scanning block %d (forking at %d) for %s arbitrage opportunities...\n\n", 
+	fmt.Printf("scanning block %d (forking at %d) for %s arbitrage opportunities...\n\n",
 		*blockNum, preMEVBlock.Uint64(), *pair)
 
-	// Load pools at block N-1 (pre-MEV state)
-	var pools *arbitrage.PairPools
-	switch *pair {
-	case "WETH/USDC":
-		pools, err = arbitrage.GetWETHUSDCPools(ctx, client, preMEVBlock)
-	case "WETH/USDT":
-		pools, err = arbitrage.GetWETHUSDTPools(ctx, client, preMEVBlock)
-	default:
-		log.Fatalf("unsupported pair: %s (use WETH/USDC or WETH/USDT)", *pair)
+	parts := strings.Split(*pair, "/")
+	if len(parts) != 2 {
+		log.Fatalf("invalid pair format: %s (use e.g. WETH/USDC)", *pair)
+	}
+	tokenAInfo, okA := eth.KnownTokens[parts[0]]
+	tokenBInfo, okB := eth.KnownTokens[parts[1]]
+	if !okA || !okB {
+		log.Fatalf("unknown token in pair: %s (known: WETH, USDC, USDT, DAI, WBTC)", *pair)
 	}
 
+	pools, err := arbitrage.GetPairPools(ctx, client, preMEVBlock,
+		tokenAInfo.Address, tokenAInfo.Decimals,
+		tokenBInfo.Address, tokenBInfo.Decimals)
 	if err != nil {
 		log.Fatalf("failed to load pools: %v", err)
 	}
+
+	// Resolve display symbols from pool's sorted token0/token1
+	token0Symbol, token1Symbol := parts[0], parts[1]
+	for sym, info := range eth.KnownTokens {
+		if info.Address == pools.Token0 {
+			token0Symbol = sym
+		}
+		if info.Address == pools.Token1 {
+			token1Symbol = sym
+		}
+	}
+	_ = token1Symbol
 
 	// Display pool reserves
 	fmt.Println("Pool Reserves at block", preMEVBlock.Uint64(), ":")
@@ -109,12 +124,13 @@ func main() {
 		fmt.Printf("Sell to:   %s (%s)\n", opp.SellPool.DEX, opp.SellPool.Address.Hex())
 		fmt.Printf("Price diff: %.4f%%\n", opp.PriceDiff)
 		fmt.Printf("\nOptimal trade:\n")
-		fmt.Printf("  Input:  %s USDC ($%s)\n",
-			opp.OptimalIn.String(),
-			new(big.Float).Quo(new(big.Float).SetInt(opp.OptimalIn), big.NewFloat(1e6)).Text('f', 2))
-		fmt.Printf("  Est Profit: %s USDC ($%s)\n",
-			opp.EstProfit.String(),
-			new(big.Float).Quo(new(big.Float).SetInt(opp.EstProfit), big.NewFloat(1e6)).Text('f', 2))
+		divisor := new(big.Float).SetInt(
+			new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(pools.Token0Dec)), nil),
+		)
+		fmt.Printf("  Input:      %s %s\n", token0Symbol,
+			new(big.Float).Quo(new(big.Float).SetInt(opp.OptimalIn), divisor).Text('f', 6))
+		fmt.Printf("  Est Profit: %s %s\n", token0Symbol,
+			new(big.Float).Quo(new(big.Float).SetInt(opp.EstProfit), divisor).Text('f', 6))
 
 		if *simulateFlag {
 			fmt.Println("\n🔧 Simulating arbitrage bundle...")

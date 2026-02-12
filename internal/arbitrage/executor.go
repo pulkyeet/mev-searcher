@@ -174,6 +174,7 @@ type SimulationResult struct {
 // attempts to return actual profit from swap events; for now it returns estimated profit
 
 func extractProfitFromLogs(result *simulator.BundleResult, opp *Opportunity) *big.Int {
+	_ = result
 	return opp.EstProfit
 }
 

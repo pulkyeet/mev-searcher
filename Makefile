@@ -1,4 +1,4 @@
-.PHONY: build test simulate clean deps
+.PHONY: build test simulate clean deps backtest
 
 deps:
 	go mod download
@@ -18,3 +18,10 @@ simulate:
 clean:
 	rm -rf bin/
 	go clean
+
+backtest:
+	go run cmd/backtest/main.go \
+		--rpc $(RPC_URL) \
+		--db data/mempool.db \
+		--start 17916526 \
+		--end 17916626

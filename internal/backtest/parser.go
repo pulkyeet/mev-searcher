@@ -3,7 +3,6 @@ package backtest
 import (
 	"encoding/hex"
 	"fmt"
-	"math/big"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -78,12 +77,12 @@ func hexToBytes(s string) ([]byte, error) {
 	return hex.DecodeString(s)
 }
 
-// Helper to parse big int from string
-func parseBigInt(s string) (*big.Int, error) {
-	val := new(big.Int)
-	_, ok := val.SetString(s, 10)
-	if !ok {
-		return nil, fmt.Errorf("invalid big int: %s", s)
-	}
-	return val, nil
-}
+// // Helper to parse big int from string
+// func parseBigInt(s string) (*big.Int, error) {
+// 	val := new(big.Int)
+// 	_, ok := val.SetString(s, 10)
+// 	if !ok {
+// 		return nil, fmt.Errorf("invalid big int: %s", s)
+// 	}
+// 	return val, nil
+// }

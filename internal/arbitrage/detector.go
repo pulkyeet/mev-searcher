@@ -19,7 +19,7 @@ func DetectOpportunity(pair *PairPools, gasPrice, gasLimit *big.Int) (*Opportuni
 
 	priceDiff := ComparePrices(prices[0].Token1PerToken0, prices[1].Token1PerToken0)
 
-	if priceDiff < 0.05 {
+	if priceDiff < 0.002 {
 		return nil, nil
 	}
 
@@ -34,22 +34,18 @@ func DetectOpportunity(pair *PairPools, gasPrice, gasLimit *big.Int) (*Opportuni
 
 	// search range is $1000 to $1000000
 	minAmount := new(big.Int).Mul(big.NewInt(100), big.NewInt(1e6))
-	maxAmount := new(big.Int).Mul(big.NewInt(10000), big.NewInt(1e6))
+	maxAmount := new(big.Int).Mul(big.NewInt(100000), big.NewInt(1e6))
 
 	optimalIn, grossProfit := FindOptimalInput(cheapPool, expensivePool, false, minAmount, maxAmount)
 
 	gasCostWei := new(big.Int).Mul(gasPrice, gasLimit)
 
-	// convert ETH gas cost to USDC using pool price
 	gasCostFloat := new(big.Float).SetInt(gasCostWei)
-	gasCostFloat.Quo(gasCostFloat, big.NewFloat(1e18)) // wei to ETH
-
+	gasCostFloat.Quo(gasCostFloat, big.NewFloat(1e18))
 	usdcPerWeth := new(big.Float).Quo(big.NewFloat(1), prices[0].Token1PerToken0)
 	gasCostFloat.Mul(gasCostFloat, usdcPerWeth)
 	gasCostFloat.Mul(gasCostFloat, big.NewFloat(1e6))
-
-	//gasCostUSDC, _ := gasCostFloat.Int(nil)
-	gasCostUSDC := big.NewInt(0) // Ignore gas for now
+	gasCostUSDC, _ := gasCostFloat.Int(nil)
 
 	netProfit := new(big.Int).Sub(grossProfit, gasCostUSDC)
 
@@ -57,6 +53,9 @@ func DetectOpportunity(pair *PairPools, gasPrice, gasLimit *big.Int) (*Opportuni
 	if netProfit.Cmp(big.NewInt(0)) <= 0 {
 		return nil, nil
 	}
+
+	fmt.Printf("  [detector] %s: spread=%.4f%% (threshold=0.6%%)\n",
+		pair.Pools[0].DEX+"/"+pair.Pools[1].DEX, priceDiff)
 
 	return &Opportunity{
 		Pair:        fmt.Sprintf("WETH/%s", pair.Pools[0].DEX),

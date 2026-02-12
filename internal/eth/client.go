@@ -284,3 +284,13 @@ func toBlockNumArg(number *big.Int) string {
 	}
 	return fmt.Sprintf("0x%x", number)
 }
+
+func (c *Client) GetBlockReceipts(ctx context.Context, blockNum uint64) ([]*types.Receipt, error) {
+    var result []*types.Receipt
+    err := c.rawRPC.CallContext(ctx, &result, "eth_getBlockReceipts",
+        fmt.Sprintf("0x%x", blockNum))
+    if err != nil {
+        return nil, fmt.Errorf("eth_getBlockReceipts: %w", err)
+    }
+    return result, nil
+}

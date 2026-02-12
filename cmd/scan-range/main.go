@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"github.com/pulkyeet/mev-searcher/internal/arbitrage"
@@ -16,14 +17,24 @@ func main() {
 	_ = godotenv.Load("../../.env")
 
 	startBlock := flag.Uint64("start", 17000000, "Start block")
-	endBlock := flag.Uint64("end", 17001000, "End block")
-	pair := flag.String("pair", "WETH/USDC", "Trading pair")
-	step := flag.Uint64("step", 100, "Block step size")
+	endBlock   := flag.Uint64("end", 17001000, "End block")
+	pair       := flag.String("pair", "WETH/USDC", "Trading pair (e.g. WETH/USDC, WETH/DAI, WETH/WBTC)")
+	step       := flag.Uint64("step", 100, "Block step size")
 	flag.Parse()
 
 	client, err := eth.NewClient()
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
+	}
+
+	parts := strings.Split(*pair, "/")
+	if len(parts) != 2 {
+		log.Fatalf("Invalid pair format: %s (use e.g. WETH/USDC)", *pair)
+	}
+	tokenAInfo, okA := eth.KnownTokens[parts[0]]
+	tokenBInfo, okB := eth.KnownTokens[parts[1]]
+	if !okA || !okB {
+		log.Fatalf("Unknown token in pair: %s (known: WETH, USDC, USDT, DAI, WBTC)", *pair)
 	}
 
 	ctx := context.Background()
@@ -34,7 +45,7 @@ func main() {
 		*startBlock, *endBlock, *step, *pair)
 	fmt.Printf("(Checking pre-MEV state at block N-1)\n\n")
 
-	foundCount := 0
+	foundCount   := 0
 	checkedCount := 0
 
 	for block := *startBlock; block <= *endBlock; block += *step {
@@ -44,25 +55,15 @@ func main() {
 			fmt.Printf("Checked %d blocks, found %d opportunities...\n", checkedCount, foundCount)
 		}
 
-		blockBigInt := new(big.Int).SetUint64(block)
-		preMEVBlock := new(big.Int).Sub(blockBigInt, big.NewInt(1))
+		preMEVBlock := new(big.Int).SetUint64(block - 1)
 
-		// Load pools at block N-1
-		var pools *arbitrage.PairPools
-		switch *pair {
-		case "WETH/USDC":
-			pools, err = arbitrage.GetWETHUSDCPools(ctx, client, preMEVBlock)
-		case "WETH/USDT":
-			pools, err = arbitrage.GetWETHUSDTPools(ctx, client, preMEVBlock)
-		default:
-			log.Fatalf("Unsupported pair: %s", *pair)
-		}
-
+		pools, err := arbitrage.GetPairPools(ctx, client, preMEVBlock,
+			tokenAInfo.Address, tokenAInfo.Decimals,
+			tokenBInfo.Address, tokenBInfo.Decimals)
 		if err != nil {
 			continue
 		}
 
-		// Check spread
 		prices := arbitrage.GetPoolPrices(pools)
 		if len(prices) >= 2 {
 			diff := arbitrage.ComparePrices(prices[0].Token1PerToken0, prices[1].Token1PerToken0)
@@ -71,46 +72,33 @@ func main() {
 			}
 		}
 
-		// Detect opportunity
 		opp, err := arbitrage.DetectOpportunity(pools, gasPrice, gasLimit)
-		if err != nil {
+		if err != nil || opp == nil {
 			continue
 		}
 
-		if opp != nil {
-			foundCount++
-
-			fmt.Printf("\n🎯 BLOCK %d - PROFITABLE ARB FOUND!\n", block)
-			fmt.Printf("   Buy:  %s\n", opp.BuyPool.DEX)
-			fmt.Printf("   Sell: %s\n", opp.SellPool.DEX)
-			fmt.Printf("   Spread: %.4f%%\n", opp.PriceDiff)
-
-			profitUSDC := new(big.Float).Quo(
-				new(big.Float).SetInt(opp.EstProfit),
-				big.NewFloat(1e6),
-			)
-			inputUSDC := new(big.Float).Quo(
-				new(big.Float).SetInt(opp.OptimalIn),
-				big.NewFloat(1e6),
-			)
-
-			fmt.Printf("   Input:  $%s USDC\n", inputUSDC.Text('f', 2))
-			fmt.Printf("   Profit: $%s USDC\n\n", profitUSDC.Text('f', 2))
+		foundCount++
+		divisor := new(big.Float).SetInt(
+			new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(pools.Token0Dec)), nil),
+		)
+		token0Sym := parts[0]
+		for sym, info := range eth.KnownTokens {
+			if info.Address == pools.Token0 {
+				token0Sym = sym
+				break
+			}
 		}
+
+		fmt.Printf("\n🎯 BLOCK %d - PROFITABLE ARB FOUND!\n", block)
+		fmt.Printf("   Buy:    %s\n", opp.BuyPool.DEX)
+		fmt.Printf("   Sell:   %s\n", opp.SellPool.DEX)
+		fmt.Printf("   Spread: %.4f%%\n", opp.PriceDiff)
+		fmt.Printf("   Input:  %s %s\n", token0Sym,
+			new(big.Float).Quo(new(big.Float).SetInt(opp.OptimalIn), divisor).Text('f', 6))
+		fmt.Printf("   Profit: %s %s\n\n", token0Sym,
+			new(big.Float).Quo(new(big.Float).SetInt(opp.EstProfit), divisor).Text('f', 6))
 	}
 
 	fmt.Printf("\n================================================\n")
-	fmt.Printf("Scan complete!\n")
-	fmt.Printf("Blocks checked: %d\n", checkedCount)
-	fmt.Printf("Opportunities found: %d\n", foundCount)
-
-	if foundCount > 0 {
-		fmt.Printf("\n✅ Found %d profitable arbitrage opportunities!\n", foundCount)
-	} else {
-		fmt.Printf("\n❌ No profitable opportunities in this range.\n")
-		fmt.Printf("Try:\n")
-		fmt.Printf("  - Wider block range\n")
-		fmt.Printf("  - Different pair (--pair WETH/USDT)\n")
-		fmt.Printf("  - Earlier blocks (more volatility)\n")
-	}
+	fmt.Printf("Scan complete! Blocks checked: %d | Opportunities: %d\n", checkedCount, foundCount)
 }
